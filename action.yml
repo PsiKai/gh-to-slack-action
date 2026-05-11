@@ -22,9 +22,10 @@ inputs:
     default: ${{ github.token }}
   email-domain:
     description: |
-      Optional corporate email domain used to derive `{first}.{last}@<domain>` when the
-      GitHub user has no public email. Example: `coalesce.io`. If empty, the derived-email
-      step is skipped.
+      Optional fallback corporate email domain (e.g. `coalesce.io`). Only used when the
+      user has no commit history in the calling repo AND no public email — in that case,
+      the action derives `{first}.{last}@<domain>` from the GitHub `name` field and tries
+      one more Slack lookup. Safe to omit for most repos.
     required: false
     default: ''
   overrides:

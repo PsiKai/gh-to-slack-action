@@ -3,9 +3,10 @@
 #
 # Strategy (first match wins):
 #   1. Inline override map.
-#   2. GitHub user's public email -> Slack users.lookupByEmail.
-#   3. Derived `{first}.{last}@<email-domain>` from GitHub `name` -> users.lookupByEmail.
-#   4. Name search across Slack users.list with disambiguation by email domain.
+#   2. Email mined from this user's recent commits in $GITHUB_REPOSITORY.
+#   3. GitHub user's public email -> Slack users.lookupByEmail.
+#   4. Derived `{first}.{last}@<email-domain>` from GitHub `name` -> users.lookupByEmail.
+#   5. Name search across Slack users.list with disambiguation by email domain.
 #
 # Fail-soft: any unrecoverable error returns empty slack_id with method=none.
 # Never exits non-zero; the caller decides what to do with a miss.
@@ -111,7 +112,29 @@ slack_call() {
        -H "Authorization: Bearer $SLACK_TOKEN" "$@"
 }
 
-# --- 2. Public email --------------------------------------------------------
+# --- 2. Commit-author email from the calling repo ---------------------------
+# Mining recent commits gives us the email this user actually authors with in
+# THIS repo, which is what their org-specific GitHub notification settings
+# resolve to. Reliable and avoids needing an `email-domain` input.
+GH_REPO="${GITHUB_REPOSITORY:-}"
+if [[ -n "$GH_REPO" ]]; then
+  commits_body="$(curl -sS "${GH_HEADERS[@]}" \
+                  "https://api.github.com/repos/$GH_REPO/commits?author=$LOGIN&per_page=10" || true)"
+  # Pick the most recent commit email that isn't GitHub's noreply alias.
+  commit_email="$(jq -r 'if type=="array" then .[] | .commit.author.email // empty else empty end' \
+                  <<<"$commits_body" 2>/dev/null \
+                  | grep -vE 'users\.noreply\.github\.com$' \
+                  | head -n 1 || true)"
+  if [[ -n "$commit_email" ]]; then
+    body="$(slack_call users.lookupByEmail --data-urlencode "email=$commit_email")"
+    if [[ "$(jq -r '.ok' <<<"$body")" == "true" ]]; then
+      uid="$(jq -r '.user.id // empty' <<<"$body")"
+      [[ -n "$uid" ]] && { emit "$uid" "email-commit"; exit 0; }
+    fi
+  fi
+fi
+
+# --- 3. Public email --------------------------------------------------------
 if [[ -n "$public_email" ]]; then
   body="$(slack_call users.lookupByEmail --data-urlencode "email=$public_email")"
   if [[ "$(jq -r '.ok' <<<"$body")" == "true" ]]; then
@@ -134,7 +157,7 @@ if [[ -n "$real_name" ]]; then
           | awk '{ if (NF >= 2) printf "%s.%s", $1, $NF }')"
 fi
 
-# --- 3. Derived email -------------------------------------------------------
+# --- 4. Derived email -------------------------------------------------------
 if [[ -n "$slug" && -n "$EMAIL_DOMAIN" ]]; then
   derived="${slug}@${EMAIL_DOMAIN}"
   body="$(slack_call users.lookupByEmail --data-urlencode "email=$derived")"
@@ -144,7 +167,7 @@ if [[ -n "$slug" && -n "$EMAIL_DOMAIN" ]]; then
   fi
 fi
 
-# --- 4. Name search ---------------------------------------------------------
+# --- 5. Name search ---------------------------------------------------------
 if [[ -n "$real_name" ]]; then
   cursor=""
   candidates_json="[]"
