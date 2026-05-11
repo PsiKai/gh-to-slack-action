@@ -73,20 +73,22 @@ emit() {
   log "Resolved \`$LOGIN\` -> ${slack_id:-(none)} via $method"
 }
 
-if [[ -z "$LOGIN" ]];       then warn "github-username is empty"; emit "" "none"; exit 0; fi
-if [[ -z "$SLACK_TOKEN" ]]; then warn "slack-token is empty";     emit "" "none"; exit 0; fi
+if [[ -z "$LOGIN" ]]; then warn "github-username is empty"; emit "" "none"; exit 0; fi
 
 # Sanity-check tools.
 for cmd in curl jq iconv; do
   command -v "$cmd" >/dev/null 2>&1 || { warn "$cmd not found on PATH"; emit "" "none"; exit 0; }
 done
 
-# --- 1. Overrides ------------------------------------------------------------
+# --- 1. Overrides (no API calls needed; runs before any other guard) ---------
 override_hit="$(jq -r --arg k "$LOGIN" 'if type=="object" and has($k) then .[$k] else empty end' \
                 <<<"$OVERRIDES" 2>/dev/null || true)"
 if [[ -n "$override_hit" && "$override_hit" != "null" ]]; then
   emit "$override_hit" "override"; exit 0
 fi
+
+# Remaining strategies all hit the Slack API — require a token from here on.
+if [[ -z "$SLACK_TOKEN" ]]; then warn "slack-token is empty"; emit "" "none"; exit 0; fi
 
 # --- Fetch GitHub user profile ----------------------------------------------
 GH_HEADERS=(-H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
