@@ -36,22 +36,15 @@ FALLBACK_FMT="${INPUT_FALLBACK_MENTION_FORMAT:-}"
 log()  { echo "$*" >&2; }
 warn() { echo "WARN: $*" >&2; }
 
+# Outputs are written to stdout as `key=value` lines, one per line.
+# Callers handle these for their host context:
+#   - GitHub Actions:  bash lookup.sh | tee -a "$GITHUB_OUTPUT"
+#   - RWX / Python:    parse stdout directly
+#   - Local CLI:       just read
+# All logging (warnings, the "Resolved X -> Y" line) goes to stderr so it
+# doesn't pollute the output channel.
 set_output() {
-  local key="$1" value="$2"
-  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-    if [[ "$value" == *$'\n'* ]]; then
-      local delim="EOF_GH2SLACK"
-      {
-        printf '%s<<%s\n' "$key" "$delim"
-        printf '%s\n' "$value"
-        printf '%s\n' "$delim"
-      } >> "$GITHUB_OUTPUT"
-    else
-      printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
-    fi
-  else
-    printf '::set::%s=%s\n' "$key" "$value"
-  fi
+  printf '%s=%s\n' "$1" "$2"
 }
 
 # Always emit outputs, even on early failure.

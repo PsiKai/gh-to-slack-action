@@ -71,4 +71,7 @@ runs:
         INPUT_EMAIL_DOMAIN: ${{ inputs.email-domain }}
         INPUT_OVERRIDES: ${{ inputs.overrides }}
         INPUT_FALLBACK_MENTION_FORMAT: ${{ inputs.fallback-mention-format }}
-      run: bash "${{ github.action_path }}/lookup.sh"
+      # Script writes `key=value` lines to stdout; tee them into $GITHUB_OUTPUT
+      # so the action's declared outputs resolve correctly. The script itself
+      # has no GitHub-specific coupling.
+      run: bash "${{ github.action_path }}/lookup.sh" | tee -a "$GITHUB_OUTPUT"
