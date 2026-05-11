@@ -7,36 +7,193 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke:
+  # ---------------------------------------------------------------------------
+  # Tests that don't depend on any secret. These exercise each documented input
+  # at least once and verify the fail-soft behavior the README promises.
+  # ---------------------------------------------------------------------------
+  inputs:
+    name: Inputs behave as documented
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve the workflow actor with defaults only
-        id: self
+      # --- github-username ---------------------------------------------------
+      - name: 'github-username: defaults to github.actor when omitted'
+        id: default-actor
         uses: ./
         with:
-          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
-
-      - name: Verify outputs were produced
+          slack-token: ''
+      - name: '↳ assert actor is rendered into the fallback mention'
         run: |
-          echo "found=${{ steps.self.outputs.found }}"
-          echo "method=${{ steps.self.outputs.match-method }}"
-          echo "mention=${{ steps.self.outputs.mention }}"
-          # Don't assert on found=true (CI env may not have access);
-          # just confirm the action ran without crashing.
-          test -n "${{ steps.self.outputs.match-method }}"
+          actor='${{ github.actor }}'
+          mention='${{ steps.default-actor.outputs.mention }}'
+          [[ "$mention" == *"$actor"* ]] || { echo "Expected mention to contain '$actor', got: $mention" >&2; exit 1; }
+          [[ "${{ steps.default-actor.outputs.found }}" == 'false' ]]
+          [[ "${{ steps.default-actor.outputs.match-method }}" == 'none' ]]
 
-      - name: Resolve a deliberately-missing user (fallback path)
-        id: missing
+      - name: 'github-username: explicit value overrides the default'
+        id: explicit-user
+        uses: ./
+        with:
+          github-username: octocat
+          slack-token: ''
+      - name: '↳ assert the explicit login appears in the mention'
+        run: |
+          mention='${{ steps.explicit-user.outputs.mention }}'
+          [[ "$mention" == *"octocat"* ]] || { echo "Expected mention to contain 'octocat', got: $mention" >&2; exit 1; }
+
+      # --- slack-token -------------------------------------------------------
+      - name: 'slack-token: empty value fails soft (does not crash the workflow)'
+        id: no-token
+        uses: ./
+        with:
+          github-username: octocat
+          slack-token: ''
+      - name: '↳ assert no slack-id, found=false, match-method=none'
+        run: |
+          [[ "${{ steps.no-token.outputs.found }}" == 'false' ]]
+          [[ "${{ steps.no-token.outputs.match-method }}" == 'none' ]]
+          [[ -z "${{ steps.no-token.outputs.slack-id }}" ]]
+
+      # --- overrides ---------------------------------------------------------
+      - name: 'overrides: matching key returns the mapped ID with no API calls'
+        id: override-hit
+        uses: ./
+        with:
+          github-username: any-user-name
+          slack-token: ''   # intentionally empty: override path must not call Slack
+          overrides: |
+            {"any-user-name": "U_OVERRIDE_TEST_001"}
+      - name: '↳ assert match-method=override and slack-id is the mapped value'
+        run: |
+          [[ "${{ steps.override-hit.outputs.found }}" == 'true' ]]
+          [[ "${{ steps.override-hit.outputs.match-method }}" == 'override' ]]
+          [[ "${{ steps.override-hit.outputs.slack-id }}" == 'U_OVERRIDE_TEST_001' ]]
+          [[ "${{ steps.override-hit.outputs.mention }}" == '<@U_OVERRIDE_TEST_001>' ]]
+
+      - name: 'overrides: non-matching key falls through to normal resolution'
+        id: override-miss
+        uses: ./
+        with:
+          github-username: octocat
+          slack-token: ''
+          overrides: |
+            {"different-user": "U_NOT_USED"}
+      - name: '↳ assert match-method is not "override"'
+        run: |
+          method='${{ steps.override-miss.outputs.match-method }}'
+          [[ "$method" != 'override' ]] || { echo "Override should not have applied, got method=$method" >&2; exit 1; }
+
+      - name: 'overrides: malformed JSON is ignored instead of crashing'
+        id: override-bad
+        uses: ./
+        with:
+          github-username: octocat
+          slack-token: ''
+          overrides: 'not valid json'
+      - name: '↳ assert action completed without error'
+        run: |
+          [[ -n "${{ steps.override-bad.outputs.match-method }}" ]]
+
+      # --- email-domain ------------------------------------------------------
+      - name: 'email-domain: providing a value does not break unrelated lookups'
+        id: with-domain
+        uses: ./
+        with:
+          github-username: octocat
+          slack-token: ''
+          email-domain: example.com
+      - name: '↳ assert action still produces outputs'
+        run: |
+          [[ -n "${{ steps.with-domain.outputs.match-method }}" ]]
+          [[ -n "${{ steps.with-domain.outputs.mention }}" ]]
+
+      # --- github-token ------------------------------------------------------
+      - name: 'github-token: default ${{ github.token }} is sufficient for user lookup'
+        id: default-gh-token
+        uses: ./
+        with:
+          github-username: octocat
+          slack-token: ''
+      - name: '↳ assert the GitHub user profile call worked (mention has the login)'
+        run: |
+          mention='${{ steps.default-gh-token.outputs.mention }}'
+          [[ "$mention" == *"octocat"* ]] || { echo "GitHub user lookup may have failed: $mention" >&2; exit 1; }
+
+      # --- fallback-mention-format ------------------------------------------
+      - name: 'fallback-mention-format: default includes the login'
+        id: default-fallback
+        uses: ./
+        with:
+          github-username: this-user-does-not-exist-xyz
+          slack-token: ''
+      - name: '↳ assert default template was rendered'
+        run: |
+          mention='${{ steps.default-fallback.outputs.mention }}'
+          [[ "$mention" == *"this-user-does-not-exist-xyz"* ]] || { echo "Default fallback should contain login, got: $mention" >&2; exit 1; }
+
+      - name: 'fallback-mention-format: custom template substitutes {login}'
+        id: custom-fallback
+        uses: ./
+        with:
+          github-username: ghost
+          slack-token: ''
+          fallback-mention-format: 'Could not page {login} for review.'
+      - name: '↳ assert custom template was rendered verbatim'
+        run: |
+          mention='${{ steps.custom-fallback.outputs.mention }}'
+          expected='Could not page ghost for review.'
+          [[ "$mention" == "$expected" ]] || { echo "Expected '$expected', got: $mention" >&2; exit 1; }
+
+      # --- cross-cutting -----------------------------------------------------
+      - name: 'cross-cutting: non-existent GitHub user produces safe fallback'
+        id: bad-user
         uses: ./
         with:
           github-username: this-user-definitely-does-not-exist-12345
-          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
-
-      - name: Verify fallback worked
+          slack-token: ''
+      - name: '↳ assert found=false, match-method=none, mention is non-empty'
         run: |
-          test "${{ steps.missing.outputs.found }}" = "false"
-          test "${{ steps.missing.outputs.match-method }}" = "none"
-          # Mention should contain the username for safe fallback
-          echo "Mention: ${{ steps.missing.outputs.mention }}"
+          [[ "${{ steps.bad-user.outputs.match-method }}" == 'none' ]]
+          [[ "${{ steps.bad-user.outputs.found }}" == 'false' ]]
+          [[ -n "${{ steps.bad-user.outputs.mention }}" ]]
+
+  # ---------------------------------------------------------------------------
+  # Tests that hit the real Slack API. These require a SLACK_BOT_TOKEN repo
+  # secret with `users:read` and `users:read.email`. They tolerate a missing
+  # secret (PRs from forks don't see secrets) by checking match-method first.
+  # ---------------------------------------------------------------------------
+  live-lookup:
+    name: Live Slack API lookup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 'happy path: github.actor resolves to a real Slack user'
+        id: actor
+        uses: ./
+        with:
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+      - name: '↳ assert success when a token is configured'
+        run: |
+          method='${{ steps.actor.outputs.match-method }}'
+          echo "Actor resolved via: $method"
+          if [[ "$method" == 'none' ]]; then
+            echo 'No Slack token configured for this run; skipping strict assertions.'
+          else
+            [[ "${{ steps.actor.outputs.found }}" == 'true' ]]
+            [[ -n "${{ steps.actor.outputs.slack-id }}" ]]
+            [[ "${{ steps.actor.outputs.mention }}" == "<@${{ steps.actor.outputs.slack-id }}>" ]]
+          fi
+
+      - name: 'overrides take precedence over live lookup'
+        id: override-vs-live
+        uses: ./
+        with:
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          overrides: |
+            {"${{ github.actor }}": "U_OVERRIDE_BEATS_LIVE"}
+      - name: '↳ assert override wins regardless of Slack availability'
+        run: |
+          [[ "${{ steps.override-vs-live.outputs.match-method }}" == 'override' ]]
+          [[ "${{ steps.override-vs-live.outputs.slack-id }}" == 'U_OVERRIDE_BEATS_LIVE' ]]
