@@ -1,6 +1,8 @@
-# GitHub → Slack Lookup Action
+# gh-to-slack-action
 
-Resolve a GitHub username to a Slack user ID on-the-fly inside any workflow. No mapping file to maintain.
+Resolve a GitHub username to a Slack user ID inside any workflow. Drop the resolved ID — or a safe fallback mention — straight into a Slack message body.
+
+## Quick start
 
 ```yaml
 - uses: PsiKai/gh-to-slack-action@v1
@@ -19,65 +21,50 @@ Resolve a GitHub username to a Slack user ID on-the-fly inside any workflow. No 
       -d "text=Your PR deploy is ready"
 ```
 
-## How it works
-
-Four strategies, first match wins:
-
-1. **Overrides** — inline JSON map for edge cases (renamed accounts, etc.)
-2. **GitHub public email** → Slack `users.lookupByEmail`
-3. **Derived corporate email** — `{first}.{last}@<email-domain>` from GitHub `name`
-4. **Name search** — scan `users.list` for an exact real-name match, disambiguated by email domain
-
-If nothing matches, `slack-id` is empty and `mention` falls back to safe text — the caller decides what to do.
+When no match is found, `slack-id` is empty and `mention` returns safe fallback text so your workflow keeps moving.
 
 ## Inputs
 
-| Input | Required | Default | Notes |
+| Input | Required | Default | Description |
 |---|---|---|---|
-| `github-username` | yes | — | The login to resolve. |
-| `slack-token` | yes | — | Bot token (xoxb-) with `users:read` and `users:read.email`. |
-| `github-token` | no | `${{ github.token }}` | Default token is sufficient. |
-| `email-domain` | no | `''` | Skip step 3 if empty. |
-| `overrides` | no | `'{}'` | JSON object: `{"login":"U..."}`. |
-| `fallback-mention-format` | no | see [action.yml](action.yml) | `{login}` is substituted. |
+| `github-username` | yes | — | The GitHub login to resolve. |
+| `slack-token` | yes | — | Slack bot token with `users:read` and `users:read.email`. |
+| `email-domain` | no | `''` | Corporate email domain used to derive `{first}.{last}@<domain>` when the GitHub user's email is private. |
+| `overrides` | no | `'{}'` | JSON map of `github-login` → `slack-user-id`, applied before any API lookup. Useful for renamed accounts. |
+| `github-token` | no | `${{ github.token }}` | Token for reading the GitHub user profile. The default workflow token is sufficient. |
+| `fallback-mention-format` | no | see [action.yml](action.yml) | Template returned as `mention` when no match is found. `{login}` is substituted. |
 
 ## Outputs
 
-| Output | Example |
-|---|---|
-| `slack-id` | `U05UCB72807` (empty if no match) |
-| `found` | `true` / `false` |
-| `match-method` | `override` / `email-public` / `email-derived` / `name-search` / `none` |
-| `mention` | `<@U05UCB72807>` if found, else the rendered fallback text |
+| Output | Description | Example |
+|---|---|---|
+| `slack-id` | Resolved Slack user ID, or empty string. | `U05UCB72807` |
+| `found` | `true` when a Slack user was matched. | `true` |
+| `match-method` | Which strategy resolved the user. | `override`, `email-public`, `email-derived`, `name-search`, `none` |
+| `mention` | Drop-in Slack mention syntax if found; otherwise the rendered fallback text. | `<@U05UCB72807>` |
 
-## Runner requirements
+## Resolution order
 
-Pure bash — no setup step, no language runtime. Uses `curl`, `jq`, and `iconv`,
-all preinstalled on `ubuntu-latest` and `macos-latest` runners.
+The action tries strategies in order and returns the first match:
 
-## Required Slack scopes
+1. **Overrides** — exact match in the `overrides` JSON map.
+2. **Public email** — GitHub user's public email, looked up via Slack `users.lookupByEmail`.
+3. **Derived email** — `{first}.{last}@<email-domain>` constructed from the GitHub user's `name` field.
+4. **Name search** — match against `real_name` / `display_name` from `users.list`, disambiguated by email domain when multiple candidates share a name.
 
-Create a Slack app, add a Bot Token, install to your workspace, and grant:
+## Slack app setup
+
+Create a Slack app, install it to your workspace, and grant the bot token these scopes:
 
 - `users:read` — list workspace members
-- `users:read.email` — match by email
+- `users:read.email` — look up users by email
 
-Plus whatever scopes you need to *use* the resulting ID (e.g. `chat:write` to DM).
-
-## Why this beats a mapping file
-
-A static `slackIds.json`:
-
-- Goes stale silently when people leave or change handles
-- Requires PRs to update
-- Is one of the [hard things in computer science](https://martinfowler.com/bliki/TwoHardThings.html) (cache invalidation)
-
-This action looks up live data every run. It's also a no-op when there's no match — your workflow just falls back gracefully.
+Add any further scopes you need to *use* the resolved ID (e.g. `chat:write` to send a message).
 
 ## Examples
 
-- [`examples/notify-pr-author.yml`](examples/notify-pr-author.yml) — DM the PR author when a deploy completes
-- [`examples/notify-failing-actor.yml`](examples/notify-failing-actor.yml) — Mention `github.actor` in a failure message
+- [`examples/notify-pr-author.yml`](examples/notify-pr-author.yml) — DM the PR author when a deploy completes.
+- [`examples/notify-failing-actor.yml`](examples/notify-failing-actor.yml) — Mention `github.actor` in a workflow-failure alert.
 
 ## License
 
