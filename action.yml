@@ -7,7 +7,7 @@ branding:
 
 inputs:
   github-username:
-    description: 'The GitHub login to resolve (e.g. `${{ github.event.pull_request.user.login }}` or `${{ github.actor }}`).'
+    description: 'The GitHub login to resolve. Typically `github.event.pull_request.user.login` or `github.actor` from the calling workflow.'
     required: true
   slack-token:
     description: |
