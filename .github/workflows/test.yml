@@ -1,0 +1,44 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve a known user (myself)
+        id: self
+        uses: ./
+        with:
+          github-username: ${{ github.actor }}
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          email-domain: ${{ vars.TEST_EMAIL_DOMAIN }}
+
+      - name: Verify outputs were produced
+        run: |
+          echo "found=${{ steps.self.outputs.found }}"
+          echo "method=${{ steps.self.outputs.match-method }}"
+          echo "mention=${{ steps.self.outputs.mention }}"
+          # Don't assert on found=true (CI env may not have access);
+          # just confirm the action ran without crashing.
+          test -n "${{ steps.self.outputs.match-method }}"
+
+      - name: Resolve a deliberately-missing user (fallback path)
+        id: missing
+        uses: ./
+        with:
+          github-username: this-user-definitely-does-not-exist-12345
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Verify fallback worked
+        run: |
+          test "${{ steps.missing.outputs.found }}" = "false"
+          test "${{ steps.missing.outputs.match-method }}" = "none"
+          # Mention should contain the username for safe fallback
+          echo "Mention: ${{ steps.missing.outputs.mention }}"

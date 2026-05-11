@@ -1,0 +1,72 @@
+name: 'GitHub to Slack Lookup'
+description: 'Resolve a GitHub username to a Slack user ID on-the-fly. No mapping file required. Email-first match, name-search fallback, JSON overrides for edge cases.'
+author: 'PsiKai'
+branding:
+  icon: 'user-check'
+  color: 'purple'
+
+inputs:
+  github-username:
+    description: 'The GitHub login to resolve (e.g. `${{ github.event.pull_request.user.login }}` or `${{ github.actor }}`).'
+    required: true
+  slack-token:
+    description: |
+      Slack token with scopes `users:read` and `users:read.email`. A bot token (xoxb-) works.
+    required: true
+  github-token:
+    description: |
+      GitHub token used to read the user profile (`GET /users/{login}`).
+      The default `secrets.GITHUB_TOKEN` is sufficient.
+    required: false
+    default: ${{ github.token }}
+  email-domain:
+    description: |
+      Optional corporate email domain used to derive `{first}.{last}@<domain>` when the
+      GitHub user has no public email. Example: `coalesce.io`. If empty, the derived-email
+      step is skipped.
+    required: false
+    default: ''
+  overrides:
+    description: |
+      Optional JSON object mapping GitHub login → Slack user ID, applied before any lookup.
+      Example: `{"mhagglund":"U07NK4YPC02","beckjake":"U03PR4KH51R"}`. Useful for renamed
+      accounts or name-change edge cases.
+    required: false
+    default: '{}'
+  fallback-mention-format:
+    description: |
+      Template returned as `mention` output when no Slack user is found.
+      `{login}` is substituted with the GitHub username.
+    required: false
+    default: '`@{login}` _(Slack ID not found — add yourself to the org Slack or contact infra)_'
+
+outputs:
+  slack-id:
+    description: 'Resolved Slack user ID (e.g. `U05UCB72807`), or empty string if no match.'
+    value: ${{ steps.lookup.outputs.slack_id }}
+  found:
+    description: '`true` if a Slack user was matched, else `false`.'
+    value: ${{ steps.lookup.outputs.found }}
+  match-method:
+    description: '`override` | `email-public` | `email-derived` | `name-search` | `none`.'
+    value: ${{ steps.lookup.outputs.match_method }}
+  mention:
+    description: |
+      `<@U123ABC>` when found (renders as a Slack mention), otherwise the rendered
+      `fallback-mention-format`. Drop this directly into a Slack message body.
+    value: ${{ steps.lookup.outputs.mention }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve
+      id: lookup
+      shell: bash
+      env:
+        INPUT_GITHUB_USERNAME: ${{ inputs.github-username }}
+        INPUT_SLACK_TOKEN: ${{ inputs.slack-token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_EMAIL_DOMAIN: ${{ inputs.email-domain }}
+        INPUT_OVERRIDES: ${{ inputs.overrides }}
+        INPUT_FALLBACK_MENTION_FORMAT: ${{ inputs.fallback-mention-format }}
+      run: bash "${{ github.action_path }}/lookup.sh"

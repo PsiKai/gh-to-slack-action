@@ -1,0 +1,40 @@
+name: Notify PR author when dev deploy succeeds
+
+on:
+  workflow_run:
+    workflows: ['dev-build-test-deploy']
+    types: [completed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    steps:
+      - name: Resolve PR author's Slack ID
+        id: slack
+        uses: PsiKai/gh-to-slack-action@v1
+        with:
+          github-username: ${{ github.event.workflow_run.actor.login }}
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          email-domain: coalesce.io
+          overrides: |
+            {"mhagglund": "U07NK4YPC02"}
+
+      - name: Send Slack DM
+        if: steps.slack.outputs.found == 'true'
+        run: |
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d @- <<EOF
+          {
+            "channel": "${{ steps.slack.outputs.slack-id }}",
+            "text": "Your dev deploy for #${{ github.event.workflow_run.pull_requests[0].number }} succeeded."
+          }
+          EOF
+
+      - name: Log fallback
+        if: steps.slack.outputs.found == 'false'
+        run: |
+          echo "Could not DM ${{ github.event.workflow_run.actor.login }}:"
+          echo "${{ steps.slack.outputs.mention }}"

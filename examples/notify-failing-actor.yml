@@ -1,0 +1,31 @@
+name: Notify on workflow failure
+
+on:
+  workflow_run:
+    workflows: ['*']
+    types: [completed]
+
+jobs:
+  notify-failure:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Resolve actor's Slack ID
+        id: slack
+        uses: PsiKai/gh-to-slack-action@v1
+        with:
+          github-username: ${{ github.event.workflow_run.actor.login }}
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          email-domain: coalesce.io
+
+      - name: Post to alerts channel
+        run: |
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d @- <<EOF
+          {
+            "channel": "#ci-alerts",
+            "text": "Workflow \`${{ github.event.workflow_run.name }}\` failed for ${{ steps.slack.outputs.mention }} — <${{ github.event.workflow_run.html_url }}|view run>"
+          }
+          EOF
