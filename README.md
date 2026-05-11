@@ -4,11 +4,12 @@ Resolve a GitHub username to a Slack user ID inside any workflow. Drop the resol
 
 ## Quick start
 
+By default the action resolves whoever triggered the workflow (`github.actor`):
+
 ```yaml
 - uses: PsiKai/gh-to-slack-action@v1
   id: slack
   with:
-    github-username: ${{ github.event.pull_request.user.login }}
     slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
     email-domain: yourcompany.io
 
@@ -21,13 +22,23 @@ Resolve a GitHub username to a Slack user ID inside any workflow. Drop the resol
       -d "text=Your PR deploy is ready"
 ```
 
+To resolve someone other than the actor — for example the PR author when running on `workflow_run` — pass `github-username` explicitly:
+
+```yaml
+- uses: PsiKai/gh-to-slack-action@v1
+  with:
+    github-username: ${{ github.event.pull_request.user.login }}
+    slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+    email-domain: yourcompany.io
+```
+
 When no match is found, `slack-id` is empty and `mention` returns safe fallback text so your workflow keeps moving.
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `github-username` | yes | — | The GitHub login to resolve. |
+| `github-username` | no | `${{ github.actor }}` | The GitHub login to resolve. |
 | `slack-token` | yes | — | Slack bot token with `users:read` and `users:read.email`. |
 | `email-domain` | no | `''` | Corporate email domain used to derive `{first}.{last}@<domain>` when the GitHub user's email is private. |
 | `overrides` | no | `'{}'` | JSON map of `github-login` → `slack-user-id`, applied before any API lookup. Useful for renamed accounts. |

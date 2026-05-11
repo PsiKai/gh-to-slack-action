@@ -12,11 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve a known user (myself)
+      - name: Resolve the workflow actor via default (no github-username passed)
         id: self
         uses: ./
         with:
-          github-username: ${{ github.actor }}
           slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
           email-domain: ${{ vars.TEST_EMAIL_DOMAIN }}
 

@@ -7,8 +7,9 @@ branding:
 
 inputs:
   github-username:
-    description: 'The GitHub login to resolve. Typically `github.event.pull_request.user.login` or `github.actor` from the calling workflow.'
-    required: true
+    description: 'The GitHub login to resolve. Defaults to `github.actor` (the user who triggered the workflow). Override with e.g. the PR author login when running on `workflow_run` or pulling from a different event.'
+    required: false
+    default: ${{ github.actor }}
   slack-token:
     description: |
       Slack token with scopes `users:read` and `users:read.email`. A bot token (xoxb-) works.
