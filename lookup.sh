@@ -116,12 +116,15 @@ slack_call() {
 
 # --- 2. Commit-author email from the calling repo ---------------------------
 # Mining recent commits gives us the email this user actually authors with in
-# THIS repo, which is what their org-specific GitHub notification settings
-# resolve to. Reliable and avoids needing an `email-domain` input.
+# THIS repo, which is usually a corp email that matches their Slack account.
+# Scope the search to the current commit's history via $GITHUB_SHA so feature
+# branches with newer gitconfig don't get masked by older default-branch
+# commits (e.g. an old noreply alias on develop).
 GH_REPO="${GITHUB_REPOSITORY:-}"
 if [[ -n "$GH_REPO" ]]; then
-  commits_body="$(curl -sS "${GH_HEADERS[@]}" \
-                  "https://api.github.com/repos/$GH_REPO/commits?author=$LOGIN&per_page=10" || true)"
+  commits_url="https://api.github.com/repos/$GH_REPO/commits?author=$LOGIN&per_page=10"
+  [[ -n "${GITHUB_SHA:-}" ]] && commits_url="${commits_url}&sha=${GITHUB_SHA}"
+  commits_body="$(curl -sS "${GH_HEADERS[@]}" "$commits_url" || true)"
   # Pick the most recent commit email that isn't GitHub's noreply alias.
   commit_email="$(jq -r 'if type=="array" then .[] | .commit.author.email // empty else empty end' \
                   <<<"$commits_body" 2>/dev/null \
